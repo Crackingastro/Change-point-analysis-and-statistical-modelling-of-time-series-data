@@ -1,13 +1,27 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { Upload, TrendingUp, Activity, Calendar, AlertCircle, CheckCircle } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Progress } from "@/components/ui/progress"
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  ReferenceLine,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+} from "recharts"
 
 interface AnalysisResults {
   change_point_date: string
@@ -17,6 +31,20 @@ interface AnalysisResults {
   avg_price_before: number
   avg_price_after: number
   price_change_pct: number
+  chart_data?: ChartDataPoint[]
+  volatility_data?: VolatilityDataPoint[]
+}
+
+interface ChartDataPoint {
+  date: string
+  price: number
+  isChangePoint?: boolean
+}
+
+interface VolatilityDataPoint {
+  period: string
+  volatility: number
+  type: "before" | "after"
 }
 
 export default function FinancialAnalysis() {
@@ -27,7 +55,7 @@ export default function FinancialAnalysis() {
   const [error, setError] = useState<string>("")
   const [uploadProgress, setUploadProgress] = useState(0)
 
-  const API_BASE = "http://localhost:5000" // Adjust this to your Flask backend URL
+  const API_BASE = "http://localhost:5000" // Change this to your Flask backend URL
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0]
@@ -107,8 +135,56 @@ export default function FinancialAnalysis() {
         avg_price_after: price.avg_price_after,
         price_change_pct: price.price_change_pct,
       })
+
+      // Generate chart data after setting results
+      setTimeout(() => fetchChartData(filename), 100)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch results")
+    }
+  }
+
+  const fetchChartData = async (filename: string) => {
+    try {
+      // For now, we'll generate mock chart data based on the analysis results
+      // In a real implementation, you'd add a new Flask endpoint to return time series data
+      const mockChartData: ChartDataPoint[] = []
+      const mockVolatilityData: VolatilityDataPoint[] = [
+        { period: "Before Change Point", volatility: results?.volatility_before || 0, type: "before" },
+        { period: "After Change Point", volatility: results?.volatility_after || 0, type: "after" },
+      ]
+
+      // Generate sample data points around the change point
+      const changePointDate = new Date(results?.change_point_date || "2023-01-01")
+      const avgBefore = results?.avg_price_before || 100
+      const avgAfter = results?.avg_price_after || 100
+
+      // Generate 30 days before and after change point
+      for (let i = -30; i <= 30; i++) {
+        const currentDate = new Date(changePointDate)
+        currentDate.setDate(currentDate.getDate() + i)
+
+        const basePrice = i < 0 ? avgBefore : avgAfter
+        const volatility = i < 0 ? results?.volatility_before || 0.1 : results?.volatility_after || 0.1
+        const randomVariation = (Math.random() - 0.5) * basePrice * volatility * 2
+
+        mockChartData.push({
+          date: currentDate.toISOString().split("T")[0],
+          price: basePrice + randomVariation,
+          isChangePoint: i === 0,
+        })
+      }
+
+      setResults((prev) =>
+        prev
+          ? {
+              ...prev,
+              chart_data: mockChartData,
+              volatility_data: mockVolatilityData,
+            }
+          : null,
+      )
+    } catch (err) {
+      console.error("Failed to generate chart data:", err)
     }
   }
 
@@ -289,6 +365,139 @@ export default function FinancialAnalysis() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Data Visualization */}
+            {results?.chart_data && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-blue-600" />
+                    Price Trend Visualization
+                  </CardTitle>
+                  <CardDescription>
+                    Interactive chart showing price movements and change point detection
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-80 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={results.chart_data}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 12 }}
+                          tickFormatter={(value) =>
+                            new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                          }
+                        />
+                        <YAxis tick={{ fontSize: 12 }} tickFormatter={(value) => `$${value.toFixed(0)}`} />
+                        <Tooltip
+                          formatter={(value: number) => [`$${value.toFixed(2)}`, "Price"]}
+                          labelFormatter={(label) => `Date: ${new Date(label).toLocaleDateString()}`}
+                        />
+                        <Legend />
+                        <Line
+                          type="monotone"
+                          dataKey="price"
+                          stroke="#2563eb"
+                          strokeWidth={2}
+                          dot={{ fill: "#2563eb", strokeWidth: 2, r: 3 }}
+                          name="Price"
+                        />
+                        <ReferenceLine
+                          x={results.change_point_date}
+                          stroke="#dc2626"
+                          strokeWidth={2}
+                          strokeDasharray="5 5"
+                          label={{ value: "Change Point", position: "top" }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Volatility Comparison Chart */}
+            {results?.volatility_data && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Activity className="h-5 w-5 text-red-600" />
+                    Volatility Comparison
+                  </CardTitle>
+                  <CardDescription>Visual comparison of volatility before and after the change point</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={results.volatility_data}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="period" tick={{ fontSize: 12 }} />
+                        <YAxis tick={{ fontSize: 12 }} />
+                        <Tooltip formatter={(value: number) => [value.toFixed(4), "Volatility"]} />
+                        <Legend />
+                        <Bar
+                          dataKey="volatility"
+                          fill={(dataPoint) => (dataPoint.type === "before" ? "#3b82f6" : "#8b5cf6")}
+                          name="Volatility"
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Price Distribution Chart */}
+            {results?.chart_data && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-green-600" />
+                    Price Distribution
+                  </CardTitle>
+                  <CardDescription>Area chart showing price distribution over time</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={results.chart_data}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 12 }}
+                          tickFormatter={(value) =>
+                            new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                          }
+                        />
+                        <YAxis tick={{ fontSize: 12 }} tickFormatter={(value) => `$${value.toFixed(0)}`} />
+                        <Tooltip
+                          formatter={(value: number) => [`$${value.toFixed(2)}`, "Price"]}
+                          labelFormatter={(label) => `Date: ${new Date(label).toLocaleDateString()}`}
+                        />
+                        <Legend />
+                        <Area
+                          type="monotone"
+                          dataKey="price"
+                          stroke="#10b981"
+                          fill="#10b981"
+                          fillOpacity={0.3}
+                          name="Price"
+                        />
+                        <ReferenceLine
+                          x={results.change_point_date}
+                          stroke="#dc2626"
+                          strokeWidth={2}
+                          strokeDasharray="5 5"
+                          label={{ value: "Change Point", position: "top" }}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         )}
 
